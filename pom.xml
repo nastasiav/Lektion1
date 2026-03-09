@@ -9,8 +9,8 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <modules>
-        <module>lektion1</module>
-        <module>l1-examples</module>
+        <module>hw-l1</module>
+        <module>task-l1</module>
     </modules>
 
     <properties>
