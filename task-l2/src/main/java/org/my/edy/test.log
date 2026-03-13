@@ -1,0 +1,242 @@
+//===============================================
+/*
+Базовый: один поток ждёт, другой будит
+*/
+
+
+public class BasicExample {
+    private static final Object lock = new Object();
+
+    public static void main(String[] args) throws InterruptedException {
+
+        Thread waiter = new Thread(() -> {
+            synchronized (lock) {
+                System.out.println("Поток ждёт...");
+                try {
+                    lock.wait(); // отпускает lock и засыпает
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                System.out.println("Поток проснулся!");
+            }
+        });
+
+        Thread notifier = new Thread(() -> {
+            synchronized (lock) {
+                System.out.println("Сейчас разбудим...");
+                lock.notify(); // будит один ожидающий поток
+            }
+        });
+
+        waiter.start();
+        Thread.sleep(500); // даём waiter-у успеть заснуть
+        notifier.start();
+    }
+}
+```
+
+**Вывод:**
+```
+Поток ждёт...
+Сейчас разбудим...
+Поток проснулся!
+
+
+
+//===============================================
+/*
+Классика: Producer / Consumer
+Производитель кладёт данные, потребитель их забирает. Если данных нет — потребитель ждёт.
+*/
+
+public class ProducerConsumer {
+    private static final Object lock = new Object();
+    private static String data = null;
+
+    public static void main(String[] args) {
+
+        // Потребитель
+        Thread consumer = new Thread(() -> {
+            synchronized (lock) {
+                while (data == null) { // while, не if!
+                    try {
+                        System.out.println("Нет данных, жду...");
+                        lock.wait();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+                System.out.println("Получил данные: " + data);
+            }
+        });
+
+        // Производитель
+        Thread producer = new Thread(() -> {
+            try { Thread.sleep(1000); } catch (InterruptedException e) {}
+            synchronized (lock) {
+                data = "Привет!";
+                System.out.println("Данные готовы, будим потребителя");
+                lock.notify();
+            }
+        });
+
+        consumer.start();
+        producer.start();
+    }
+}
+
+
+//===============================================
+/*
+notifyAll(): несколько ждущих потоков
+*/
+
+
+public class NotifyAllExample {
+    private static final Object lock = new Object();
+
+    public static void main(String[] args) throws InterruptedException {
+
+        Runnable task = () -> {
+            synchronized (lock) {
+                try {
+                    System.out.println(Thread.currentThread().getName() + " ждёт");
+                    lock.wait();
+                    System.out.println(Thread.currentThread().getName() + " проснулся");
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+
+        new Thread(task, "Поток-1").start();
+        new Thread(task, "Поток-2").start();
+        new Thread(task, "Поток-3").start();
+
+        Thread.sleep(500);
+
+        synchronized (lock) {
+            System.out.println("Будим ВСЕХ");
+            lock.notifyAll(); // разбудит все три потока
+        }
+    }
+}
+
+
+//Проблема БЕЗ happens-before
+
+public class NoProblem {
+    private static boolean ready = false;
+    private static int value = 0;
+
+    public static void main(String[] args) throws InterruptedException {
+
+        Thread reader = new Thread(() -> {
+            while (!ready) {
+                // крутимся в ожидании
+            }
+            // Может напечатать 0! Хотя writer записал 42
+            System.out.println("Значение: " + value);
+        });
+
+        Thread writer = new Thread(() -> {
+            value = 42;
+            ready = true; // НЕТ гарантии что reader увидит это изменение
+        });
+
+        reader.start();
+        Thread.sleep(100);
+        writer.start();
+    }
+}
+
+//  Решение через volatile
+
+i--
+
+
+
+public class VolatileExample {
+    private static volatile boolean ready = false; // volatile!
+    private static volatile int value = 0;
+
+    public static void main(String[] args) throws InterruptedException {
+
+        Thread reader = new Thread(() -> {
+            while (!ready) {}
+            // Гарантированно напечатает 42
+            // Запись value=42 случилась ДО записи ready=true
+            // Чтение ready=true случилось ДО чтения value
+            System.out.println("Значение: " + value);
+        });
+
+        Thread writer = new Thread(() -> {
+            value = 42;       // (1)
+            ready = true;     // (2) volatile-запись
+                              // happens-before любого чтения ready
+        });
+
+        reader.start();
+        Thread.sleep(100);
+        writer.start();
+    }
+}
+
+//Happens-before через synchronized
+
+public class SynchronizedExample {
+    private static int counter = 0;
+
+    public static void increment() {
+        synchronized {
+            counter++;
+        }
+    }
+
+    public static synchronized int getCounter() {
+        return counter;
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+
+        Thread t1 = new Thread(() -> {
+            for (int i = 0; i < 1000; i++) increment();
+        });
+
+        Thread t2 = new Thread(() -> {
+            for (int i = 0; i < 1000; i++) increment();
+        });
+
+        t1.start();
+        t2.start();
+        t1.join();
+        t2.join();
+
+        // Без synchronized мог быть НЕ 2000 — гонка данных
+        // С synchronized — гарантированно 2000
+        System.out.println("Итог: " + getCounter()); // всегда 2000
+    }
+}
+
+//Happens-before через Join
+
+public class JoinExample {
+    private static int result = 0;
+
+    public static void main(String[] args) throws InterruptedException {
+
+        Thread worker = new Thread(() -> {
+            System.out.println("Считаем...");
+            result = 100; // (1) записываем результат
+        });
+
+        worker.start();
+        worker.join(); // (2) ждём завершения потока
+                       // join() создаёт happens-before:
+                       // всё что было в worker ДО его завершения
+                       // гарантированно видно после join()
+
+        // Гарантированно 100, НЕ 0
+        System.out.println("Результат: " + result);
+    }
+}
